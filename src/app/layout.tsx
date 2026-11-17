@@ -6,11 +6,29 @@ import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://christmas-home.vercel.app"),
   title: { default: "Christmas Wonderland 2026", template: "%s · Christmas Wonderland 2026" },
   description:
     "The digital heart of a cozy Christmas home: countdown, ambient scenes with sound, an Advent calendar, a family wall and letters from Santa.",
   appleWebApp: { capable: true, title: "Wonderland", statusBarStyle: "black-translucent" },
   formatDetection: { telephone: false },
+  openGraph: {
+    title: "Christmas Wonderland 2026",
+    description:
+      "The digital heart of a cozy Christmas home: countdown, ambient scenes with sound, an Advent calendar, a family wall and letters from Santa.",
+    url: "/",
+    siteName: "Christmas Wonderland 2026",
+    type: "website",
+    locale: "en_US",
+    images: [{ url: "/og.jpg", width: 1200, height: 630, alt: "A snowy alpine village glowing with Christmas lights" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Christmas Wonderland 2026",
+    description:
+      "The digital heart of a cozy Christmas home: countdown, ambient scenes with sound, an Advent calendar, a family wall and letters from Santa.",
+    images: ["/og.jpg"],
+  },
 };
 
 export const viewport: Viewport = {
