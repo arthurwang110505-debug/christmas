@@ -69,3 +69,20 @@ src/lib/audio      synth engine and song data
 src/lib/content    Advent doors, quotes, Santa's letters
 src/db             Drizzle schema (Home Sync)
 ```
+
+## Deploying to Vercel (christmas-home)
+
+The Vercel project `christmas-home` is linked to this repository, but
+**Git auto-deployments are disabled** on the project. Merging to `main` does NOT
+publish automatically. To ship: create a **production** deployment from the branch
+you want (e.g. with the Vercel CLI: `vercel --prod`, or from the dashboard:
+Deployments → … → Redeploy / New Deployment).
+
+To make merges publish automatically, enable it in the dashboard:
+**Project → Settings → Git → turn on "Vercel for GitHub" production branch deployments**
+(or recreate the Vercel ↔ GitHub link for the repo).
+
+`vercel.json` registers a daily cron that pings `/api/health` so the Supabase
+free-tier database is not paused for inactivity. Cron only runs on Production
+deployments from the repo's default branch, so merge to `main` and deploy from
+there for the cron to take effect.
