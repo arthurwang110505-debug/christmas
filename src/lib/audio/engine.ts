@@ -46,6 +46,10 @@ interface VoiceSpec {
   minDecay: number;
   sustainMul: number;
   partials: Partial_[];
+  /** If set, every partial runs through one shared lowpass (used for the string bed). */
+  lowpass?: { frequency: number; q: number };
+  /** If true, every partial is doubled into a ±9-cent detuned pair (ensemble warmth). */
+  chorus?: boolean;
 }
 
 const LEAD: Record<VoiceId, VoiceSpec> = {
@@ -54,7 +58,9 @@ const LEAD: Record<VoiceId, VoiceSpec> = {
     minDecay: 1.5,
     sustainMul: 1.6,
     partials: [
+      { ratio: 0.5, gain: 0.24, decay: 1.4, type: "sine" },
       { ratio: 1, gain: 0.9, decay: 1, type: "sine" },
+      { ratio: 1, gain: 0.1, decay: 0.7, type: "triangle" },
       { ratio: 2, gain: 0.22, decay: 0.55, type: "sine" },
       { ratio: 5.04, gain: 0.09, decay: 0.16, type: "sine" },
     ],
@@ -64,6 +70,7 @@ const LEAD: Record<VoiceId, VoiceSpec> = {
     minDecay: 1.2,
     sustainMul: 1.5,
     partials: [
+      { ratio: 0.5, gain: 0.12, decay: 1.5, type: "sine" },
       { ratio: 1, gain: 0.8, decay: 1, type: "sine" },
       { ratio: 2, gain: 0.28, decay: 0.7, type: "sine" },
       { ratio: 3.01, gain: 0.15, decay: 0.45, type: "sine" },
@@ -75,6 +82,7 @@ const LEAD: Record<VoiceId, VoiceSpec> = {
     minDecay: 1.1,
     sustainMul: 1.4,
     partials: [
+      { ratio: 0.5, gain: 0.28, decay: 1.3, type: "sine" },
       { ratio: 1, gain: 0.85, decay: 1, type: "sine" },
       { ratio: 1, gain: 0.1, decay: 0.7, type: "triangle" },
       { ratio: 4, gain: 0.14, decay: 0.3, type: "sine" },
@@ -88,6 +96,7 @@ const ACCOMP: Record<Exclude<Part, "lead">, VoiceSpec> = {
     minDecay: 1.4,
     sustainMul: 1.3,
     partials: [
+      { ratio: 0.5, gain: 0.38, decay: 1, type: "sine" },
       { ratio: 1, gain: 0.9, decay: 1, type: "sine" },
       { ratio: 2, gain: 0.18, decay: 0.6, type: "triangle" },
     ],
@@ -96,14 +105,40 @@ const ACCOMP: Record<Exclude<Part, "lead">, VoiceSpec> = {
     attack: 0.008,
     minDecay: 1.0,
     sustainMul: 2,
+    chorus: true,
     partials: [
-      { ratio: 1, gain: 0.9, decay: 1, type: "sine" },
-      { ratio: 2, gain: 0.12, decay: 0.4, type: "sine" },
+      { ratio: 1, gain: 0.75, decay: 1, type: "sine" },
+      { ratio: 2, gain: 0.1, decay: 0.4, type: "sine" },
+    ],
+  },
+  /** Soft sustained triads — the "string bed" that fills out the harmony. */
+  strings: {
+    attack: 0.4,
+    minDecay: 3.2,
+    sustainMul: 1.15,
+    lowpass: { frequency: 1250, q: 0.4 },
+    chorus: true,
+    partials: [
+      { ratio: 1, gain: 0.34, decay: 1, type: "sawtooth" },
+      { ratio: 2, gain: 0.05, decay: 0.7, type: "sine" },
     ],
   },
 };
 
 const CHIME_NOTES = [72, 74, 76, 79, 81, 84, 86, 88];
+
+/** Procedural stereo impulse response — a warm, medium room. No assets needed. */
+function impulseResponse(ctx: AudioContext, seconds = 2.1, decay = 2.7): AudioBuffer {
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+  }
+  return buf;
+}
 
 function noiseBuffer(ctx: AudioContext, seconds: number, kind: "white" | "brown"): AudioBuffer {
   const len = Math.floor(ctx.sampleRate * seconds);
@@ -249,13 +284,20 @@ class AudioEngine {
     damp.type = "lowpass";
     damp.frequency.value = 2200;
     const feedback = ctx.createGain();
-    feedback.gain.value = 0.3;
+    feedback.gain.value = 0.26;
     const wet = ctx.createGain();
-    wet.gain.value = 0.24;
+    wet.gain.value = 0.16;
     musicBus.connect(delay);
     delay.connect(damp);
     damp.connect(feedback).connect(delay);
     damp.connect(wet).connect(master);
+    // Convolution reverb: the strongest single "room" cue. Built procedurally.
+    const convolver = ctx.createConvolver();
+    convolver.buffer = impulseResponse(ctx, 2.1, 2.7);
+    const reverbWet = ctx.createGain();
+    reverbWet.gain.value = 0.22;
+    musicBus.connect(convolver);
+    convolver.connect(reverbWet).connect(master);
     this.musicBus = musicBus;
 
     const ambBus = ctx.createGain();
@@ -322,6 +364,7 @@ class AudioEngine {
     chimes.gain.value = 0;
     chimes.connect(ambBus);
     chimes.connect(delay);
+    chimes.connect(convolver);
     this.chimeGain = chimes;
 
     this.applyAmbience(0.01);
@@ -351,20 +394,39 @@ class AudioEngine {
     const spec = ev.part === "lead" ? LEAD[voice] : ACCOMP[ev.part];
     const f = 440 * 2 ** ((ev.midi - 69) / 12);
     const sustain = Math.min(3.4, Math.max(spec.minDecay, ev.dur * spec.sustainMul));
+    // Per-note humanisation: a constant pitch drift (constant across partials,
+    // so the partials stay in tune with each other) and a ±8% velocity wobble.
+    const drift = (Math.random() - 0.5) * 8;
+    const humanVel = ev.vel * (0.92 + Math.random() * 0.16);
+    // Pad voices share one lowpass per note so the whole triad blooms together.
+    let sharedFilter: BiquadFilterNode | null = null;
+    if (spec.lowpass) {
+      sharedFilter = ctx.createBiquadFilter();
+      sharedFilter.type = "lowpass";
+      sharedFilter.frequency.value = spec.lowpass.frequency;
+      sharedFilter.Q.value = spec.lowpass.q;
+      sharedFilter.connect(dest);
+    }
+    const noteDest: AudioNode = sharedFilter ?? dest;
     for (const p of spec.partials) {
       const pf = f * p.ratio;
       if (pf > 11000) continue;
-      const osc = ctx.createOscillator();
-      osc.type = p.type;
-      osc.frequency.value = pf;
-      const g = ctx.createGain();
-      const end = when + spec.attack + sustain * p.decay;
-      g.gain.setValueAtTime(0, when);
-      g.gain.linearRampToValueAtTime(ev.vel * p.gain, when + spec.attack);
-      g.gain.exponentialRampToValueAtTime(0.0001, end);
-      osc.connect(g).connect(dest);
-      osc.start(when);
-      osc.stop(end + 0.05);
+      // Chorus voices double every partial into a slightly detuned pair.
+      const detuneOffsets = spec.chorus ? [-9, 9] : [0];
+      for (const off of detuneOffsets) {
+        const osc = ctx.createOscillator();
+        osc.type = p.type;
+        osc.frequency.value = pf;
+        osc.detune.value = drift + off;
+        const g = ctx.createGain();
+        const end = when + spec.attack + sustain * p.decay;
+        g.gain.setValueAtTime(0, when);
+        g.gain.linearRampToValueAtTime(humanVel * p.gain * (spec.chorus ? 0.72 : 1), when + spec.attack);
+        g.gain.exponentialRampToValueAtTime(0.0001, end);
+        osc.connect(g).connect(noteDest);
+        osc.start(when);
+        osc.stop(end + 0.05);
+      }
     }
   }
 
