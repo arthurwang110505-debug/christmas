@@ -30,8 +30,11 @@ Deploys to Vercel as a standard Next.js app.
 
 ## Cost and licensing
 
-- **Audio** is generated in the browser with the Web Audio API. The carols are traditional
-  public-domain melodies stored as note data; two pieces are original. No recordings are shipped.
+- **Audio** is generated in the browser with the Web Audio API. Each piece is a four-part
+  synthesised ensemble — a music-box/bells/celesta lead, a soft string-bed sustaining each chord,
+  a sub-doubled bass and a shimmering harp — with per-note humanisation and a procedural
+  convolution reverb. The carols are traditional public-domain melodies stored as note data;
+  two pieces are original. No recordings are shipped.
 - **Images** in `public/scenes` were generated for this project.
 - No paid API is required for anything.
 

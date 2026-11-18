@@ -8,7 +8,7 @@ import type { Bi } from "../i18n";
  */
 
 export type VoiceId = "musicbox" | "bells" | "celesta";
-export type Part = "lead" | "bass" | "harp";
+export type Part = "lead" | "bass" | "harp" | "strings";
 
 export interface NoteEvent {
   t: number;
@@ -125,6 +125,19 @@ function buildTrack(def: SongDef): Track {
           });
         }
       }
+    });
+    // String bed: one sustained triad per chord segment — a small "section" under the lead.
+    bars.forEach((bar, b) => {
+      const parts = bar.split("|").map(parseChord);
+      const segUnits = def.unitsPerBar / parts.length;
+      parts.forEach((chord, s) => {
+        const t = base + (def.pickup + b * def.unitsPerBar + s * segUnits) * def.unit;
+        const root = 60 + ((chord.root + def.transpose + 120) % 12);
+        const third = root + (chord.minor ? 3 : 4);
+        for (const midi of [root, third, root + 7]) {
+          events.push({ t, midi, dur: segUnits * def.unit, vel: 0.16, part: "strings" });
+        }
+      });
     });
   }
 
